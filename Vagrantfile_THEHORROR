@@ -1,0 +1,73 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+# So you want to inject a SSH public key at runtime with Virtualbox + Vagrant?
+# SSH public key injection via DMI example.
+
+# https://github.com/mitchellh/vagrant/blob/master/keys/vagrant.pub
+# Assuming vagrant.pub exists in the directory. This can be substituted with an
+# arbitrary public key. It's assumed that the box is somehow capable of finding
+# this key we inject and putting it into /root/.ssh/authorized_keys.
+public_key = File.open("vagrant.pub").read.rstrip
+# The public key needs to be split into two parts. The first part must be <256
+# characters because of a DMI limitation, the second must be < 240 characters
+# because that's what remains after emptying all other DMI information out.
+public_key_part1 = public_key[0,255]
+public_key_part2 = public_key[255,239]
+
+Vagrant.configure(2) do |config|
+  # From CentOS 6.5 minimal ISO + script to populate /root/.ssh/authorized_keys
+  # from DMI
+  config.vm.box = "centos-6.5-x86_64-minimal.box"
+
+  # Box is configured with only root user accessible via ssh with key.
+  config.ssh.username = "root"
+  # Path to matching private key
+  config.ssh.private_key_path = "/Users/pbennes/.ssh/id_rsa"
+  # This VM doesn't have Virtualbox Guest Additions. This synced_folder line
+  # prevents 'up' from hanging while trying to mount the sync folder.
+  config.vm.synced_folder ".", "/vagrant", disabled: true
+
+  config.vm.provider "virtualbox" do |v|
+    # https://www.virtualbox.org/manual/ch09.html#changedmi
+    # http://www.filewatcher.com/p/VirtualBox-4.1.18.tar.bz2.73688436/VirtualBox-4.1.18/src/VBox/Devices/PC/DevFwCommon.cpp.html
+    # 768? bytes total allowable by Virtualbox? (Might be a DMI limitation).
+    # Empty out as much DMI info as possible to free up space
+    # DMI BIOS Information
+    # type 0: bios information
+    # These are used to hold the SSH public key below.
+    #v.customize ["setextradata", :id, "VBoxInternal/Devices/pcbios/0/Config/DmiBIOSVendor",       "<EMPTY>"]
+    #v.customize ["setextradata", :id, "VBoxInternal/Devices/pcbios/0/Config/DmiBIOSVersion",      "<EMPTY>"]
+    v.customize ["setextradata", :id, "VBoxInternal/Devices/pcbios/0/Config/DmiBIOSReleaseDate",  "<EMPTY>"]
+    # type 1: system information
+    v.customize ["setextradata", :id, "VBoxInternal/Devices/pcbios/0/Config/DmiSystemVendor",     "<EMPTY>"]
+    v.customize ["setextradata", :id, "VBoxInternal/Devices/pcbios/0/Config/DmiSystemProduct",    "<EMPTY>"]
+    v.customize ["setextradata", :id, "VBoxInternal/Devices/pcbios/0/Config/DmiSystemVersion",    "<EMPTY>"]
+    v.customize ["setextradata", :id, "VBoxInternal/Devices/pcbios/0/Config/DmiSystemSerial",     "<EMPTY>"]
+    v.customize ["setextradata", :id, "VBoxInternal/Devices/pcbios/0/Config/DmiSystemSKU",        "<EMPTY>"]
+    v.customize ["setextradata", :id, "VBoxInternal/Devices/pcbios/0/Config/DmiSystemFamily",     "<EMPTY>"]
+    # type 2: board information
+    v.customize ["setextradata", :id, "VBoxInternal/Devices/pcbios/0/Config/DmiBoardVendor",      "<EMPTY>"]
+    v.customize ["setextradata", :id, "VBoxInternal/Devices/pcbios/0/Config/DmiBoardProduct",     "<EMPTY>"]
+    v.customize ["setextradata", :id, "VBoxInternal/Devices/pcbios/0/Config/DmiBoardVersion",     "<EMPTY>"]
+    # type 3: system enclosure or chassis
+    v.customize ["setextradata", :id, "VBoxInternal/Devices/pcbios/0/Config/DmiChassisVendor",    "<EMPTY>"]
+    v.customize ["setextradata", :id, "VBoxInternal/Devices/pcbios/0/Config/DmiChassisVersion",   "<EMPTY>"]
+    v.customize ["setextradata", :id, "VBoxInternal/Devices/pcbios/0/Config/DmiChassisSerial",    "<EMPTY>"]
+    v.customize ["setextradata", :id, "VBoxInternal/Devices/pcbios/0/Config/DmiChassisAssetTag",  "<EMPTY>"]
+    # type 11: OEM strings
+    v.customize ["setextradata", :id, "VBoxInternal/Devices/pcbios/0/Config/DmiOEMVBoxVer",       "<EMPTY>"]
+    v.customize ["setextradata", :id, "VBoxInternal/Devices/pcbios/0/Config/DmiOEMVBoxRev",       "<EMPTY>"]
+
+    # The above should reduce DMI to 277 bytes, 768 - 277 = 491
+    # bytes/characters. A single DMI value is limited to 256 chars.
+    # An SSH public key is ~400 characters, we need all we can get.
+    # 256 chars
+    v.customize ["setextradata", :id, "VBoxInternal/Devices/pcbios/0/Config/DmiBIOSVendor",       "#{public_key_part1}"]
+    # 239 chars
+    v.customize ["setextradata", :id, "VBoxInternal/Devices/pcbios/0/Config/DmiBIOSVersion",      "#{public_key_part2}"]
+
+    #v.memory = "1024"
+    #v.cpus = "2"
+  end
+end
